@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sky Runner - Demo</title>
+<style>
+  body {
+    margin: 0;
+    background: linear-gradient(to top, #87ceeb 0%, #ffffff 100%);
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+  }
+  #gameCanvas {
+    display: block;
+    margin: 0 auto;
+    background: #87ceeb;
+    border: 2px solid #000;
+  }
+  #score {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    font-size: 24px;
+    color: #fff;
+    text-shadow: 1px 1px 2px #000;
+  }
+  #gameOver {
+    position: absolute;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 48px;
+    color: red;
+    text-shadow: 2px 2px 5px #000;
+    display: none;
+  }
+  #restartBtn {
+    position: absolute;
+    top: 55%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 24px;
+    padding: 10px 20px;
+    display: none;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas" width="800" height="400"></canvas>
+<div id="score">Score: 0</div>
+<div id="gameOver">Game Over!</div>
+<button id="restartBtn">Restart</button>
+
+<script>
+(() => {
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  // Game variables
+  let score = 0;
+  let animationId;
+  let gameOver = false;
+
+  // Player object
+  const player = {
+    x: 50,
+    y: 300,
+    width: 40,
+    height: 60,
+    velocityY: 0,
+    speed: 5,
+    jumping: false,
+    color: '#0077ff',
+  };
+
+  const gravity = 0.5;
+
+  // Obstacles: spikes
+  const spikes = [
+    { x: 200, y: 350, width: 30, height: 50 },
+    { x: 400, y: 350, width: 30, height: 50 },
+    { x: 600, y: 350, width: 30, height: 50 },
+  ];
+
+  // Collectibles: orbs
+  let orbs = [
+    { x: 300, y: 320, radius: 10 },
+    { x: 500, y: 280, radius: 10 },
+    { x: 700, y: 300, radius: 10 },
+  ];
+
+  // Keyboard input
+  let keys = {};
+
+  window.addEventListener('keydown', (e) => {
+    keys[e.key] = true;
+
+    // Jump with ArrowUp or Space
+    if ((e.key === 'ArrowUp' || e.key === ' ') && !player.jumping && !gameOver) {
+      player.jumping = true;
+      player.velocityY = -10;
+    }
+  });
+
+  window.addEventListener('keyup', (e) => {
+    keys[e.key] = false;
+  });
+
+  // Functions
+
+  function updatePlayer() {
+    if (keys['ArrowLeft']) player.x -= player.speed;
+    if (keys['ArrowRight']) player.x += player.speed;
+
+    // Clamp player inside canvas horizontally
+    player.x = Math.min(Math.max(player.x, 0), canvas.width - player.width);
+
+    if (player.jumping) {
+      player.velocityY += gravity;
+      player.y += player.velocityY;
+
+      if (player.y >= 300) {
+        player.y = 300;
+        player.jumping = false;
+        player.velocityY = 0;
+      }
+    }
+  }
+
+  function drawPlayer() {
+    ctx.fillStyle = player.color;
+    ctx.fillRect(player.x, player.y, player.width, player.height);
+  }
+
+  function drawSpikes() {
+    ctx.fillStyle = 'red';
+    spikes.forEach(spike => {
+      ctx.beginPath();
+      ctx.moveTo(spike.x, spike.y + spike.height);
+      ctx.lineTo(spike.x + spike.width / 2, spike.y);
+      ctx.lineTo(spike.x + spike.width, spike.y + spike.height);
+      ctx.closePath();
+      ctx.fill();
+    });
+  }
+
+  function drawOrbs() {
+    ctx.fillStyle = 'yellow';
+    orbs.forEach(orb => {
+      ctx.beginPath();
+      ctx.arc(orb.x, orb.y, orb.radius, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  function checkCollision() {
+    for (let spike of spikes) {
+      if (player.x < spike.x + spike.width &&
+          player.x + player.width > spike.x &&
+          player.y < spike.y + spike.height &&
+          player.y + player.height > spike.y) {
+        triggerGameOver();
+        return;
+      }
+    }
+  }
+
+  function checkOrbCollision() {
+    for (let i = orbs.length - 1; i >= 0; i--) {
+      const orb = orbs[i];
+      const dx = (player.x + player.width / 2) - orb.x;
+      const dy = (player.y + player.height / 2) - orb.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < orb.radius + Math.min(player.width, player.height) / 2) {
+        orbs.splice(i, 1);
+        score += 10;
+        updateScoreDisplay();
+      }
+    }
+  }
+
+  function updateScoreDisplay() {
+    document.getElementById('score').textContent = `Score: ${score}`;
+  }
+
+  function clearCanvas() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  function triggerGameOver() {
+    gameOver = true;
+    document.getElementById('gameOver').style.display = 'block';
+    document.getElementById('restartBtn').style.display = 'inline-block';
+    cancelAnimationFrame(animationId);
+  }
+
+  function restartGame() {
+    score = 0;
+    updateScoreDisplay();
+    player.x = 50;
+    player.y = 300;
+    player.velocityY = 0;
+    player.jumping = false;
+    orbs = [
+      { x: 300, y: 320, radius: 10 },
+      { x: 500, y: 280, radius: 10 },
+      { x: 700, y: 300, radius: 10 },
+    ];
+    gameOver = false;
+    document.getElementById('gameOver').style.display = 'none';
+    document.getElementById('restartBtn').style.display = 'none';
+    gameLoop();
+  }
+
+  function gameLoop() {
+    clearCanvas();
+    updatePlayer();
+    checkCollision();
+    checkOrbCollision();
+    drawPlayer();
+    drawSpikes();
+    drawOrbs();
+    if (!gameOver) {
+      animationId = requestAnimationFrame(gameLoop);
+    }
+  }
+
+  // Start game
+  updateScoreDisplay();
+  gameLoop();
+
+  // Restart button handler
+  document.getElementById('restartBtn').addEventListener('click', restartGame);
+})();
+</script>
+
+</body>
+</html>

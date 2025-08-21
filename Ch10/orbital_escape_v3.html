@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Orbital Escape - Improved & Playable</title>
+<style>
+  body { margin: 0; overflow: hidden; background: black; }
+  canvas { display: block; }
+
+  #score {
+    position: fixed;
+    top: 10px; left: 10px;
+    color: white;
+    font-family: Arial, sans-serif;
+    font-size: 24px;
+    text-shadow: 1px 1px 4px black;
+    z-index: 10;
+  }
+
+  #gameOverOverlay, #levelCompleteOverlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0,0,0,0.75);
+    color: white;
+    font-family: Arial, sans-serif;
+    font-size: 48px;
+    text-align: center;
+    padding-top: 20vh;
+    z-index: 20;
+  }
+  #gameOverOverlay {
+    color: red;
+  }
+
+  #restartBtn {
+    margin-top: 20px;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 10px 20px;
+  }
+
+  #progressBarContainer {
+    position: fixed;
+    top: 50px; left: 10px;
+    width: 300px;
+    height: 20px;
+    background: #555;
+    border-radius: 10px;
+    overflow: hidden;
+    z-index: 15;
+  }
+  #progressBarFill {
+    width: 0%;
+    height: 100%;
+    background: #0f0;
+    transition: width 0.3s ease;
+  }
+</style>
+</head>
+<body>
+
+<div id="score">Score: 0</div>
+<div id="progressBarContainer">
+  <div id="progressBarFill"></div>
+</div>
+<div id="gameOverOverlay">
+  Game Over!<br />
+  <button id="restartBtn">Restart</button>
+</div>
+<div id="levelCompleteOverlay">
+  Level Complete!<br />
+  <button id="levelRestartBtn">Play Again</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+<script>
+(() => {
+  const scene = new THREE.Scene();
+
+  const camera = new THREE.PerspectiveCamera(
+    75,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000
+  );
+  camera.position.z = 30;
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  // Lighting
+  const ambientLight = new THREE.AmbientLight(0x404040, 1.5);
+  scene.add(ambientLight);
+
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+  directionalLight.position.set(10, 10, 10);
+  scene.add(directionalLight);
+
+  // Starfield
+  const starsGeometry = new THREE.BufferGeometry();
+  const starCount = 500;
+  const starVertices = [];
+  for (let i = 0; i < starCount; i++) {
+    starVertices.push(
+      (Math.random() - 0.5) * 200,
+      (Math.random() - 0.5) * 200,
+      (Math.random() - 0.5) * 200
+    );
+  }
+  starsGeometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(starVertices, 3)
+  );
+  const starsMaterial = new THREE.PointsMaterial({ color: 0xffffff });
+  const starField = new THREE.Points(starsGeometry, starsMaterial);
+  scene.add(starField);
+
+  // Player spaceship
+  const ship = new THREE.Group();
+
+  const coneGeometry = new THREE.ConeGeometry(1, 3, 8);
+  const coneMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+  const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+  cone.rotation.x = Math.PI / 2;
+  ship.add(cone);
+
+  const bodyGeometry = new THREE.CylinderGeometry(0.5, 0.5, 3, 8);
+  const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x007700 });
+  const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+  body.position.y = -1.5;
+  ship.add(body);
+
+  ship.position.set(0, 0, 20);
+  scene.add(ship);
+
+  // Movement controls
+  const shipSpeed = 0.45;
+  const shipBounds = { x: 15, y: 10, z: 20 };
+  const keysPressed = {};
+
+  window.addEventListener('keydown', (e) => {
+    keysPressed[e.key.toLowerCase()] = true;
+  });
+  window.addEventListener('keyup', (e) => {
+    keysPressed[e.key.toLowerCase()] = false;
+  });
+
+  function updateShip() {
+    if (keysPressed['w']) ship.position.z -= shipSpeed;
+    if (keysPressed['s']) ship.position.z += shipSpeed;
+    if (keysPressed['a']) ship.position.x -= shipSpeed;
+    if (keysPressed['d']) ship.position.x += shipSpeed;
+    if (keysPressed['q']) ship.position.y += shipSpeed;
+    if (keysPressed['e']) ship.position.y -= shipSpeed;
+
+    ship.position.x = THREE.MathUtils.clamp(ship.position.x, -shipBounds.x, shipBounds.x);
+    ship.position.y = THREE.MathUtils.clamp(ship.position.y, -shipBounds.y, shipBounds.y);
+    ship.position.z = THREE.MathUtils.clamp(ship.position.z, -shipBounds.z, shipBounds.z);
+  }
+
+  // Asteroids
+  let asteroidCount = 20;
+  const asteroids = [];
+
+  function createAsteroid() {
+    const geometry = new THREE.IcosahedronGeometry(1, 1);
+    const material = new THREE.MeshStandardMaterial({ color: 0x666666, flatShading: true });
+    const asteroid = new THREE.Mesh(geometry, material);
+    asteroid.position.set(
+      (Math.random() - 0.5) * 40,
+      (Math.random() - 0.5) * 20,
+      -50 - Math.random() * 100
+    );
+    asteroid.userData.velocity = new THREE.Vector3(
+      (Math.random() - 0.5) * 0.1,
+      (Math.random() - 0.5) * 0.05,
+      0.2 + Math.random() * 0.3
+    );
+    scene.add(asteroid);
+    return asteroid;
+  }
+
+  function spawnAsteroids() {
+    asteroids.forEach(ast => scene.remove(ast));
+    asteroids.length = 0;
+    for (let i = 0; i < asteroidCount; i++) {
+      asteroids.push(createAsteroid());
+    }
+  }
+
+  // Energy orbs (smaller radius now)
+  const orbs = [];
+  const orbsToCollect = 10;
+
+  function createOrb() {
+    const geometry = new THREE.SphereGeometry(0.2, 16, 16);
+    const material = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0xffff00, emissiveIntensity: 1 });
+    const orb = new THREE.Mesh(geometry, material);
+    return orb;
+  }
+
+  function spawnOrbCluster(centerPos, count = 5) {
+    orbs.forEach(orb => scene.remove(orb));
+    orbs.length = 0;
+
+    for (let i = 0; i < count; i++) {
+      const offset = new THREE.Vector3(
+        (Math.random() - 0.5) * 5,
+        (Math.random() - 0.5) * 5,
+        (Math.random() - 0.5) * 5
+      );
+      const orb = createOrb();
+      orb.position.copy(centerPos).add(offset);
+      orbs.push(orb);
+      scene.add(orb);
+    }
+  }
+
+  // Collision detection helper
+  function sphereCollision(pos1, radius1, pos2, radius2) {
+    return pos1.distanceTo(pos2) < radius1 + radius2;
+  }
+
+  // Orb collection effect
+  function playOrbCollectEffect(orb) {
+    const glowGeometry = new THREE.SphereGeometry(orb.scale.x * 3, 16, 16);
+    const glowMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.7 });
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    glow.position.copy(orb.position);
+    scene.add(glow);
+
+    setTimeout(() => scene.remove(glow), 300);
+
+    const audio = new Audio('https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg');
+    audio.play();
+  }
+
+  // Game state
+  let score = 0;
+  let gameOver = false;
+
+  // UI
+  const scoreEl = document.getElementById('score');
+  const gameOverOverlay = document.getElementById('gameOverOverlay');
+  const levelCompleteOverlay = document.getElementById('levelCompleteOverlay');
+  const restartBtn = document.getElementById('restartBtn');
+  const levelRestartBtn = document.getElementById('levelRestartBtn');
+  const progressBarFill = document.getElementById('progressBarFill');
+
+  function updateScoreDisplay() {
+    scoreEl.textContent = `Score: ${score}`;
+  }
+
+  function updateProgressBar() {
+    const percent = Math.min((score / (orbsToCollect * 10)) * 100, 100);
+    progressBarFill.style.width = `${percent}%`;
+  }
+
+  function showGameOver() {
+    gameOverOverlay.style.display = 'block';
+  }
+
+  function hideGameOver() {
+    gameOverOverlay.style.display = 'none';
+  }
+
+  function showLevelComplete() {
+    levelCompleteOverlay.style.display = 'block';
+  }
+
+  function hideLevelComplete() {
+    levelCompleteOverlay.style.display = 'none';
+  }
+
+  // Asteroid update with speed scaling
+  function updateAsteroids() {
+    const speedMultiplier = 1 + score / 100;
+
+    asteroids.forEach(ast => {
+      ast.position.addScaledVector(ast.userData.velocity, speedMultiplier);
+
+      if (ast.position.z > 30) {
+        ast.position.set(
+          (Math.random() - 0.5) * 40,
+          (Math.random() - 0.5) * 20,
+          -100 - Math.random() * 50
+        );
+        ast.userData.velocity = new THREE.Vector3(
+          (Math.random() - 0.5) * 0.1 * speedMultiplier,
+          (Math.random() - 0.5) * 0.05 * speedMultiplier,
+          (0.2 + Math.random() * 0.3) * speedMultiplier
+        );
+      }
+    });
+  }
+
+  // Orbs rotate for visibility
+  function updateOrbs() {
+    orbs.forEach(orb => {
+      orb.rotation.y += 0.02;
+    });
+  }
+
+  // Check collisions
+  function checkCollisions() {
+    const shipPos = ship.position;
+    const shipRadius = 2;
+
+    for (let ast of asteroids) {
+      if (sphereCollision(shipPos, shipRadius, ast.position, 1)) {
+        gameOver = true;
+        showGameOver();
+        break;
+      }
+    }
+
+    if (gameOver) return;
+
+    for (let orb of orbs) {
+      if (sphereCollision(shipPos, shipRadius, orb.position, 0.2)) {
+        score += 10;
+        updateScoreDisplay();
+        updateProgressBar();
+        playOrbCollectEffect(orb);
+
+        spawnOrbCluster(ship.position, orbsToCollect);
+        break;
+      }
+    }
+
+    if (score >= orbsToCollect * 10) {
+      showLevelComplete();
+      gameOver = true; // pause game loop
+
+      setTimeout(() => {
+        hideLevelComplete();
+        resetGame();
+      }, 3500);
+    }
+  }
+
+  // Restart handlers
+  restartBtn.addEventListener('click', () => {
+    resetGame();
+  });
+
+  levelRestartBtn.addEventListener('click', () => {
+    hideLevelComplete();
+    resetGame();
+  });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  function animate() {
+    if (!gameOver) {
+      requestAnimationFrame(animate);
+    }
+    updateShip();
+    updateAsteroids();
+    updateOrbs();
+    checkCollisions();
+    renderer.render(scene, camera);
+  }
+
+  function resetGame() {
+    score = 0;
+    updateScoreDisplay();
+    updateProgressBar();
+    gameOver = false;
+    hideGameOver();
+    hideLevelComplete();
+
+    ship.position.set(0, 0, 20);
+    asteroidCount = 20;
+    spawnAsteroids();
+    spawnOrbCluster(ship.position, orbsToCollect);
+
+    animate();
+  }
+
+  resetGame();
+})();
+</script>
+
+</body>
+</html>
